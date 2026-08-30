@@ -20,5 +20,5 @@ Watch.
 - `PRIMARY_PATH_KEY`: random 64-character hexadecimal primary path.
 - `FALLBACK_PATH_KEY`: separate random 64-character hexadecimal fallback path.
 
-The workflow runs every 30 minutes. If an origin fetch or validation fails, the
+The workflow runs hourly. If an origin fetch or validation fails, the
 deployment fails and GitHub Pages keeps serving the previous last-good snapshot.

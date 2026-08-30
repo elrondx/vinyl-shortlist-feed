@@ -3,10 +3,10 @@ name: Publish VINYL shortlist feed
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "17 * * * *"
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -22,6 +22,9 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
+      - name: Check out publisher configuration
+        uses: actions/checkout@v4
+
       - name: Fetch authoritative Shopping Agent feed
         env:
           ORIGIN_URL: ${{ secrets.ORIGIN_URL }}
@@ -82,3 +85,16 @@ jobs:
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Record one daily successful publication
+        if: github.event_name == 'schedule'
+        run: |
+          set -euo pipefail
+          if [ "$(date -u +%H)" = "00" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            date -u +'%Y-%m-%dT%H:%M:%SZ' > feed-publisher-last-success.txt
+            git add feed-publisher-last-success.txt
+            git diff --cached --quiet || git commit -m "Record successful feed publication"
+            git push
+          fi
