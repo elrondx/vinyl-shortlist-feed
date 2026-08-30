@@ -1,0 +1,84 @@
+name: Publish VINYL shortlist feed
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: vinyl-shortlist-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Fetch authoritative Shopping Agent feed
+        env:
+          ORIGIN_URL: ${{ secrets.ORIGIN_URL }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --max-time 30 \
+            --max-redirs 0 \
+            --proto '=https' \
+            --tlsv1.2 \
+            --output shortlist.json \
+            "$ORIGIN_URL"
+
+      - name: Validate schema and active-listing filter
+        run: |
+          set -euo pipefail
+          jq -e '
+            ((.schema_version // .schema // .version) != null) and
+            (.listings | type == "array") and
+            (.freshness.last_marketplace_sweep_at != null) and
+            (.freshness.last_curated_at != null)
+          ' shortlist.json >/dev/null
+
+          jq -e '
+            [
+              .listings[]
+              | select(
+                  ((.shortlist_status // "") | ascii_downcase)
+                  | test("rejected|sold|withdrawn|stale")
+                )
+            ]
+            | length == 0
+          ' shortlist.json >/dev/null
+
+      - name: Build secret-keyed primary and fallback snapshots
+        env:
+          PRIMARY_PATH_KEY: ${{ secrets.PRIMARY_PATH_KEY }}
+          FALLBACK_PATH_KEY: ${{ secrets.FALLBACK_PATH_KEY }}
+        run: |
+          set -euo pipefail
+          test ${#PRIMARY_PATH_KEY} -ge 48
+          test ${#FALLBACK_PATH_KEY} -ge 48
+          test "$PRIMARY_PATH_KEY" != "$FALLBACK_PATH_KEY"
+
+          mkdir -p public/api/vinyl-shortlist
+          cp shortlist.json "public/api/vinyl-shortlist/${PRIMARY_PATH_KEY}.json"
+          cp shortlist.json "public/api/vinyl-shortlist/${FALLBACK_PATH_KEY}.json"
+          touch public/.nojekyll
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
